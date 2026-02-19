@@ -130,12 +130,6 @@ if [[ ${#WORKSPACES[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# Build lookup set from CONTEXT_FILES array
-declare -A CONTEXT_FILE_SET
-for f in "${CONTEXT_FILES[@]}"; do
-  CONTEXT_FILE_SET[$f]=1
-done
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 estimate_tokens() {
@@ -273,14 +267,16 @@ for ws in "${WORKSPACES[@]}"; do
       para_bytes=$(echo -n "$para" | wc -c)
       para_tokens=$(( (para_bytes + 3) / 4 ))
 
-      location="$ws_label/$filename"
+      # Use full path for dedup keys, label for display
+      dup_key="$ws_key/$filename"
+      dup_display="$ws_label/$filename"
       if [[ -n "${PARAGRAPH_HASHES[$hash]:-}" ]]; then
-        # Exact pipe-delimited match to avoid substring false positives
-        if [[ "|${PARAGRAPH_HASHES[$hash]}|" != *"|$location|"* ]]; then
-          PARAGRAPH_HASHES[$hash]="${PARAGRAPH_HASHES[$hash]}|$location"
+        # Exact pipe-delimited match on full-path keys
+        if [[ "|${PARAGRAPH_HASHES[$hash]}|" != *"|$dup_key|"* ]]; then
+          PARAGRAPH_HASHES[$hash]="${PARAGRAPH_HASHES[$hash]}|$dup_key"
         fi
       else
-        PARAGRAPH_HASHES[$hash]="$location"
+        PARAGRAPH_HASHES[$hash]="$dup_key"
         PARAGRAPH_TEXTS[$hash]=$(echo "$para" | head -c 200 | tr '\n' ' ' | sed 's/  */ /g;s/^ //;s/ $//')
         PARAGRAPH_TOKENS[$hash]="$para_tokens"
       fi
@@ -300,14 +296,22 @@ for ws in "${WORKSPACES[@]}"; do
   fi
 done
 
-# Collect duplicates
+# Collect duplicates (keys are full paths; convert to labels for display)
 for hash in "${!PARAGRAPH_HASHES[@]}"; do
   locations="${PARAGRAPH_HASHES[$hash]}"
   # Only flag if found in 2+ locations
   if [[ "$locations" == *"|"* ]]; then
     preview="${PARAGRAPH_TEXTS[$hash]}"
     tokens="${PARAGRAPH_TOKENS[$hash]}"
-    loc_display=$(echo "$locations" | tr '|' ', ')
+    # Convert full paths to short labels for display
+    loc_display=""
+    IFS='|' read -ra loc_arr <<< "$locations"
+    for loc in "${loc_arr[@]}"; do
+      # /home/art/niemand/AGENTS.md -> niemand/AGENTS.md
+      short=$(echo "$loc" | sed 's|.*/\([^/]*/[^/]*\)$|\1|')
+      [[ -n "$loc_display" ]] && loc_display+=", "
+      loc_display+="$short"
+    done
     DUPLICATES+=("\"${preview:0:60}...\" (~${tokens} tokens)"$'\n'"  Found in: $loc_display")
   fi
 done
