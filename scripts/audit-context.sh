@@ -12,11 +12,27 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 
+# ── Preflight ────────────────────────────────────────────────────────────────
+
+for cmd in jq md5sum awk; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "Error: required command '$cmd' not found" >&2
+    exit 1
+  fi
+done
+
 # ── Defaults (overridden by config file, then CLI args) ──────────────────────
 
 WORKSPACES=()
 declare -A THRESHOLDS=()
 DEFAULT_THRESHOLD="1000:2000"
+# Only OpenClaw-injected bootstrap files are audited by default.
+# Override in config or use --all-root-md to scan everything.
+CONTEXT_FILES=(
+  AGENTS.md SOUL.md TOOLS.md IDENTITY.md USER.md
+  HEARTBEAT.md BOOTSTRAP.md MEMORY.md
+)
+ALL_ROOT_MD=false
 MEMORY_DIR_NAME="memory"
 MEMORY_FILE_WARN=50
 DUP_MIN_WORDS=50
@@ -57,6 +73,10 @@ while [[ $# -gt 0 ]]; do
       BASELINE_DIR="$2"
       shift 2
       ;;
+    --all-root-md)
+      ALL_ROOT_MD=true
+      shift
+      ;;
     -h|--help)
       echo "Usage: $(basename "$0") [OPTIONS]"
       echo ""
@@ -64,6 +84,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --dry-run              Print report only, do not send notification"
       echo "  --config PATH          Path to config file"
       echo "  --workspace DIR        Workspace directory to scan (repeatable)"
+      echo "  --all-root-md          Scan all *.md at workspace root (not just bootstrap set)"
       echo "  --notify-channel CH    Notification channel (e.g., telegram)"
       echo "  --notify-target ID     Notification target (e.g., chat ID)"
       echo "  --baseline-dir DIR     Directory for baseline storage"
@@ -109,6 +130,12 @@ if [[ ${#WORKSPACES[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Build lookup set from CONTEXT_FILES array
+declare -A CONTEXT_FILE_SET
+for f in "${CONTEXT_FILES[@]}"; do
+  CONTEXT_FILE_SET[$f]=1
+done
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 estimate_tokens() {
@@ -124,7 +151,15 @@ get_threshold() {
   echo "$thresh"
 }
 
-workspace_name() {
+# Stable workspace key: full resolved path for baseline JSON keys
+workspace_key() {
+  local ws="$1"
+  # Resolve symlinks, normalize trailing slashes
+  readlink -f "$ws" 2>/dev/null || echo "$ws"
+}
+
+# Short name for display in reports
+workspace_label() {
   basename "$1"
 }
 
@@ -148,21 +183,32 @@ DUPLICATES=()
 HEALTHY_COUNT=0
 TOTAL_TOKENS=0
 WORKSPACE_COUNT=0
-NEW_BASELINE="{}"
+NEW_BASELINE="$BASELINE"  # Start from existing baseline to preserve history
 
 # For duplicate detection: hash -> "workspace/file" mappings
 declare -A PARAGRAPH_HASHES  # hash -> "ws1/file|ws2/file|..."
-declare -A PARAGRAPH_TEXTS   # hash -> first N words (for display)
+declare -A PARAGRAPH_TEXTS   # hash -> preview text for display
 declare -A PARAGRAPH_TOKENS  # hash -> estimated token count
 
 for ws in "${WORKSPACES[@]}"; do
   [[ -d "$ws" ]] || continue
   WORKSPACE_COUNT=$((WORKSPACE_COUNT + 1))
-  ws_name=$(workspace_name "$ws")
+  ws_key=$(workspace_key "$ws")
+  ws_label=$(workspace_label "$ws")
 
-  # Scan root .md files
-  for mdfile in "$ws"/*.md; do
-    [[ -f "$mdfile" ]] || continue
+  # Build file list: bootstrap set by default, or all *.md with --all-root-md
+  scan_files=()
+  if [[ "$ALL_ROOT_MD" == "true" ]]; then
+    for mdfile in "$ws"/*.md; do
+      [[ -f "$mdfile" ]] && scan_files+=("$mdfile")
+    done
+  else
+    for fname in "${CONTEXT_FILES[@]}"; do
+      [[ -f "$ws/$fname" ]] && scan_files+=("$ws/$fname")
+    done
+  fi
+
+  for mdfile in "${scan_files[@]}"; do
     filename=$(basename "$mdfile")
     tokens=$(estimate_tokens "$mdfile")
     bytes=$(wc -c < "$mdfile" 2>/dev/null || echo 0)
@@ -175,7 +221,7 @@ for ws in "${WORKSPACES[@]}"; do
 
     # Check previous baseline for growth
     growth_info=""
-    prev_tokens=$(echo "$BASELINE" | jq -r --arg ws "$ws_name" --arg f "$filename" \
+    prev_tokens=$(echo "$BASELINE" | jq -r --arg ws "$ws_key" --arg f "$filename" \
       '.[$ws][$f].tokens // 0' 2>/dev/null || echo 0)
     if [[ "$prev_tokens" -gt 0 && "$tokens" -gt 0 ]]; then
       delta=$((tokens - prev_tokens))
@@ -194,24 +240,24 @@ for ws in "${WORKSPACES[@]}"; do
 
     # Classify
     if [[ "$tokens" -ge "$crit_limit" ]]; then
-      entry="$ws_name/$filename: ~${tokens} tokens (critical limit: ${crit_limit})"
+      entry="$ws_label/$filename: ~${tokens} tokens (critical limit: ${crit_limit})"
       [[ -n "$growth_info" ]] && entry="$entry"$'\n'"$growth_info"
       CRITICALS+=("$entry")
     elif [[ "$tokens" -ge "$warn_limit" ]]; then
-      entry="$ws_name/$filename: ~${tokens} tokens (warn limit: ${warn_limit})"
+      entry="$ws_label/$filename: ~${tokens} tokens (warn limit: ${warn_limit})"
       [[ -n "$growth_info" ]] && entry="$entry"$'\n'"$growth_info"
       WARNINGS+=("$entry")
     else
       HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
       # Still report significant growth even on healthy files
       if [[ -n "$growth_info" ]]; then
-        WARNINGS+=("$ws_name/$filename: ~${tokens} tokens (under limits but notable growth)"$'\n'"$growth_info")
+        WARNINGS+=("$ws_label/$filename: ~${tokens} tokens (under limits but notable growth)"$'\n'"$growth_info")
       fi
     fi
 
-    # Update new baseline
+    # Update baseline (merge into existing, preserving unscanned workspaces)
     NEW_BASELINE=$(echo "$NEW_BASELINE" | jq \
-      --arg ws "$ws_name" --arg f "$filename" \
+      --arg ws "$ws_key" --arg f "$filename" \
       --argjson t "$tokens" --argjson b "$bytes" \
       '.[$ws] //= {} | .[$ws][$f] = {tokens: $t, bytes: $b}')
 
@@ -227,15 +273,14 @@ for ws in "${WORKSPACES[@]}"; do
       para_bytes=$(echo -n "$para" | wc -c)
       para_tokens=$(( (para_bytes + 3) / 4 ))
 
-      location="$ws_name/$filename"
+      location="$ws_label/$filename"
       if [[ -n "${PARAGRAPH_HASHES[$hash]:-}" ]]; then
-        # Only add if this location isn't already recorded
-        if [[ "${PARAGRAPH_HASHES[$hash]}" != *"$location"* ]]; then
+        # Exact pipe-delimited match to avoid substring false positives
+        if [[ "|${PARAGRAPH_HASHES[$hash]}|" != *"|$location|"* ]]; then
           PARAGRAPH_HASHES[$hash]="${PARAGRAPH_HASHES[$hash]}|$location"
         fi
       else
         PARAGRAPH_HASHES[$hash]="$location"
-        # Store preview (first 10 words)
         PARAGRAPH_TEXTS[$hash]=$(echo "$para" | head -c 200 | tr '\n' ' ' | sed 's/  */ /g;s/^ //;s/ $//')
         PARAGRAPH_TOKENS[$hash]="$para_tokens"
       fi
@@ -250,7 +295,7 @@ for ws in "${WORKSPACES[@]}"; do
   if [[ -d "$mem_dir" ]]; then
     file_count=$(find "$mem_dir" -maxdepth 1 -type f | wc -l)
     if [[ "$file_count" -ge "$MEMORY_FILE_WARN" ]]; then
-      WARNINGS+=("$ws_name/$MEMORY_DIR_NAME/: $file_count files (suggest archival, threshold: $MEMORY_FILE_WARN)")
+      WARNINGS+=("$ws_label/$MEMORY_DIR_NAME/: $file_count files (suggest archival, threshold: $MEMORY_FILE_WARN)")
     fi
   fi
 done
@@ -270,7 +315,6 @@ done
 # ── Build report ─────────────────────────────────────────────────────────────
 
 DATE=$(date '+%b %-d, %Y')
-TOTAL_FILES=$((HEALTHY_COUNT + ${#CRITICALS[@]} + ${#WARNINGS[@]}))
 
 if [[ ${#CRITICALS[@]} -eq 0 && ${#WARNINGS[@]} -eq 0 && ${#DUPLICATES[@]} -eq 0 ]]; then
   REPORT="✅ Context Audit — $DATE: All clear. ~${TOTAL_TOKENS} tokens across $WORKSPACE_COUNT workspaces."

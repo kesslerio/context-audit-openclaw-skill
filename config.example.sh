@@ -18,15 +18,29 @@ WORKSPACES=(
 # Token thresholds (estimated tokens = bytes / 4)
 # Format: THRESHOLDS[filename]="warn:critical"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Only applies to files in CONTEXT_FILES (bootstrap set by default).
+# Use --all-root-md to scan everything at workspace root.
 declare -A THRESHOLDS=(
   [MEMORY.md]="2000:4000"
   [AGENTS.md]="3000:6000"
   [TOOLS.md]="2000:4000"
   [SOUL.md]="1000:2000"
   [BOOTSTRAP.md]="1500:3000"
-  [COMMUNICATION.md]="1000:2000"
+  [IDENTITY.md]="1000:2000"
+  [USER.md]="1000:2000"
+  [HEARTBEAT.md]="1000:2000"
 )
 DEFAULT_THRESHOLD="1000:2000"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Context files to audit (OpenClaw bootstrap set)
+# Uncomment/add entries to extend beyond the defaults
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# CONTEXT_FILES=(
+#   AGENTS.md SOUL.md TOOLS.md IDENTITY.md USER.md
+#   HEARTBEAT.md BOOTSTRAP.md MEMORY.md
+#   COMMUNICATION.md SKILLS.md WRITING_STYLE.md  # extras
+# )
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Memory directory settings
