@@ -139,4 +139,4 @@ Baseline is preserved across partial scans — if a workspace is temporarily una
 
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](LICENSE).
