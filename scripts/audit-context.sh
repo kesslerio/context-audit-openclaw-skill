@@ -165,6 +165,10 @@ BASELINE_FILE="$BASELINE_DIR/baseline.json"
 # Load existing baseline (or empty object)
 if [[ -f "$BASELINE_FILE" ]]; then
   BASELINE=$(cat "$BASELINE_FILE")
+  if ! echo "$BASELINE" | jq empty >/dev/null 2>&1; then
+    echo "Warning: baseline file is invalid JSON, resetting: $BASELINE_FILE" >&2
+    BASELINE="{}"
+  fi
 else
   BASELINE="{}"
 fi
@@ -289,7 +293,7 @@ for ws in "${WORKSPACES[@]}"; do
   # Check memory directory
   mem_dir="$ws/$MEMORY_DIR_NAME"
   if [[ -d "$mem_dir" ]]; then
-    file_count=$(find "$mem_dir" -maxdepth 1 -type f | wc -l)
+    file_count=$(fd -t f -d 1 . "$mem_dir" 2>/dev/null | wc -l)
     if [[ "$file_count" -ge "$MEMORY_FILE_WARN" ]]; then
       WARNINGS+=("$ws_label/$MEMORY_DIR_NAME/: $file_count files (suggest archival, threshold: $MEMORY_FILE_WARN)")
     fi
