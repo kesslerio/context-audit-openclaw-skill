@@ -84,7 +84,7 @@ Copy `config.example.sh` to `~/.config/context-audit/config.sh` and customize:
 
 ## Dependencies
 
-- bash, jq (for baseline JSON)
+- bash, jq, fd
 - openclaw CLI (optional, for notifications)
 
 ## Limitations

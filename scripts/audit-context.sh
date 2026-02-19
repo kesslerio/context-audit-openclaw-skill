@@ -14,7 +14,7 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 
 # ── Preflight ────────────────────────────────────────────────────────────────
 
-for cmd in jq md5sum awk; do
+for cmd in jq md5sum awk fd; do
   if ! command -v "$cmd" &>/dev/null; then
     echo "Error: required command '$cmd' not found" >&2
     exit 1
@@ -46,11 +46,16 @@ CONFIG_PATH=""
 # ── Parse CLI args (before config, to get --config path) ─────────────────────
 
 CLI_WORKSPACES=()
+CLI_DRY_RUN=false
+CLI_NOTIFY_CHANNEL=""
+CLI_NOTIFY_TARGET=""
+CLI_BASELINE_DIR=""
+CLI_ALL_ROOT_MD=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run)
-      DRY_RUN=true
+      CLI_DRY_RUN=true
       shift
       ;;
     --config)
@@ -62,19 +67,19 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --notify-channel)
-      NOTIFY_CHANNEL="$2"
+      CLI_NOTIFY_CHANNEL="$2"
       shift 2
       ;;
     --notify-target)
-      NOTIFY_TARGET="$2"
+      CLI_NOTIFY_TARGET="$2"
       shift 2
       ;;
     --baseline-dir)
-      BASELINE_DIR="$2"
+      CLI_BASELINE_DIR="$2"
       shift 2
       ;;
     --all-root-md)
-      ALL_ROOT_MD=true
+      CLI_ALL_ROOT_MD=true
       shift
       ;;
     -h|--help)
@@ -122,6 +127,11 @@ fi
 if [[ ${#CLI_WORKSPACES[@]} -gt 0 ]]; then
   WORKSPACES=("${CLI_WORKSPACES[@]}")
 fi
+[[ "$CLI_DRY_RUN" == "true" ]] && DRY_RUN=true
+[[ -n "$CLI_NOTIFY_CHANNEL" ]] && NOTIFY_CHANNEL="$CLI_NOTIFY_CHANNEL"
+[[ -n "$CLI_NOTIFY_TARGET" ]] && NOTIFY_TARGET="$CLI_NOTIFY_TARGET"
+[[ -n "$CLI_BASELINE_DIR" ]] && BASELINE_DIR="$CLI_BASELINE_DIR"
+[[ "$CLI_ALL_ROOT_MD" == "true" ]] && ALL_ROOT_MD=true
 
 # Validate we have workspaces
 if [[ ${#WORKSPACES[@]} -eq 0 ]]; then

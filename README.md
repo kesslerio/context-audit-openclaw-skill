@@ -1,6 +1,6 @@
 # context-audit
 
-Monthly audit for OpenClaw agent workspace context files. Detects token bloat, month-over-month growth drift, and cross-workspace paragraph duplication. Pure bash + jq — zero LLM tokens for the audit itself.
+Monthly audit for OpenClaw agent workspace context files. Detects token bloat, month-over-month growth drift, and cross-workspace paragraph duplication. Pure shell tooling (`bash`, `jq`, `fd`) — zero LLM tokens for the audit itself.
 
 ## Why
 
@@ -123,6 +123,7 @@ Copy `config.example.sh` to `~/.config/context-audit/config.sh`. Key settings:
 
 - **bash** (4.0+ for associative arrays)
 - **jq** (baseline JSON processing)
+- **fd** (memory directory file counting)
 - **md5sum**, **awk** (duplicate detection)
 - **openclaw CLI** (optional — for notifications and cron scheduling)
 
