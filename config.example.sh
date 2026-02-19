@@ -42,6 +42,9 @@ DEFAULT_THRESHOLD="1000:2000"
 #   COMMUNICATION.md SKILLS.md WRITING_STYLE.md  # extras
 # )
 
+# Set true to scan every root *.md file (higher noise, broader coverage)
+# ALL_ROOT_MD=true
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Memory directory settings
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

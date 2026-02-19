@@ -96,7 +96,7 @@ MESSAGE="Run the context audit script: bash $AUDIT_SCRIPT — then post the outp
 # Upsert behavior:
 # - If jobs with this name exist, keep one, remove extras, then edit.
 # - Otherwise add a new job.
-mapfile -t MATCHING_IDS < <(openclaw cron list --all --json | jq -r --arg name "$JOB_NAME" '.jobs[] | select(.name == $name) | .id')
+mapfile -t MATCHING_IDS < <(openclaw cron list --all --json | jq -r --arg name "$JOB_NAME" '(.jobs // [])[] | select(.name == $name) | .id')
 
 EXISTING_ID=""
 if [[ ${#MATCHING_IDS[@]} -gt 0 ]]; then

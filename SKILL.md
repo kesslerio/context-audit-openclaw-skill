@@ -15,7 +15,7 @@ Scans agent workspace context files (MEMORY.md, AGENTS.md, TOOLS.md, etc.) for t
 
 ## What It Does
 
-1. Scans all `*.md` files at workspace root (depth=1)
+1. Scans OpenClaw bootstrap context files at workspace root by default (`AGENTS.md`, `MEMORY.md`, etc.)
 2. Estimates token count per file (`bytes / 4`)
 3. Compares against configurable per-file thresholds
 4. Detects month-over-month growth via stored baselines
@@ -48,6 +48,7 @@ Main audit script.
 - `--dry-run` — Print report only, skip notification
 - `--config PATH` — Config file path
 - `--workspace DIR` — Workspace to scan (repeatable, overrides config)
+- `--all-root-md` — Scan all root `*.md` files instead of bootstrap-only set
 - `--notify-channel CH` — Notification channel (e.g., `telegram`)
 - `--notify-target ID` — Notification target (e.g., chat ID)
 - `--baseline-dir DIR` — Baseline storage directory
@@ -73,6 +74,8 @@ Creates a monthly cron job via OpenClaw gateway API.
 Copy `config.example.sh` to `~/.config/context-audit/config.sh` and customize:
 
 - **WORKSPACES** — Array of workspace directories to scan
+- **CONTEXT_FILES** — Exact root files to audit (bootstrap set by default)
+- **ALL_ROOT_MD** — Set `true` to scan all root `*.md` files
 - **THRESHOLDS** — Per-file token limits (warn:critical)
 - **MEMORY_FILE_WARN** — Max files in memory/ before warning
 - **DUP_MIN_WORDS** — Minimum paragraph size for duplicate detection
@@ -81,7 +84,7 @@ Copy `config.example.sh` to `~/.config/context-audit/config.sh` and customize:
 
 ## Dependencies
 
-- bash, jq (for baseline JSON)
+- bash, jq, fd
 - openclaw CLI (optional, for notifications)
 
 ## Limitations
