@@ -16,6 +16,8 @@ TZ="America/Los_Angeles"
 AGENT=""
 SESSION="isolated"
 JOB_NAME="Monthly Context Audit"
+CHANNEL=""
+TO=""
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -40,6 +42,14 @@ while [[ $# -gt 0 ]]; do
       JOB_NAME="$2"
       shift 2
       ;;
+    --channel)
+      CHANNEL="$2"
+      shift 2
+      ;;
+    --to)
+      TO="$2"
+      shift 2
+      ;;
     -h|--help)
       echo "Usage: $(basename "$0") [OPTIONS]"
       echo ""
@@ -49,6 +59,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --agent ID         Agent ID for the cron job"
       echo "  --session TARGET   Session target: main|isolated (default: isolated)"
       echo "  --name TEXT        Cron job name (default: Monthly Context Audit)"
+      echo "  --channel PLATFORM Delivery channel (e.g., telegram, slack, discord)"
+      echo "  --to TARGET        Delivery target (e.g., chat ID, channel ID)"
       echo "  -h, --help         Show this help"
       exit 0
       ;;
@@ -109,6 +121,8 @@ if [[ -n "$EXISTING_ID" ]]; then
     --enable
   )
   [[ -n "$AGENT" ]] && CMD+=(--agent "$AGENT")
+  [[ -n "$CHANNEL" ]] && CMD+=(--channel "$CHANNEL" --announce)
+  [[ -n "$TO" ]] && CMD+=(--to "$TO")
   echo "Updating existing context audit cron job ($EXISTING_ID)..." >&2
 else
   CMD=(
@@ -120,6 +134,8 @@ else
     --message "$MESSAGE"
   )
   [[ -n "$AGENT" ]] && CMD+=(--agent "$AGENT")
+  [[ -n "$CHANNEL" ]] && CMD+=(--channel "$CHANNEL" --announce)
+  [[ -n "$TO" ]] && CMD+=(--to "$TO")
   echo "Creating context audit cron job..." >&2
 fi
 
