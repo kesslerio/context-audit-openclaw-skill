@@ -37,6 +37,8 @@ MEMORY_DIR_NAME="memory"
 MEMORY_FILE_WARN=50
 DUP_MIN_WORDS=50
 GROWTH_WARN_PERCENT=30
+TOTAL_BOOTSTRAP_WARN=11000
+TOTAL_BOOTSTRAP_CRIT=14000
 BASELINE_DIR="$HOME/.openclaw/context-audit"
 NOTIFY_CHANNEL=""
 NOTIFY_TARGET=""
@@ -140,12 +142,20 @@ if [[ ${#WORKSPACES[@]} -eq 0 ]]; then
   exit 1
 fi
 
+declare -A BOOTSTRAP_FILE_LOOKUP=()
+for fname in "${CONTEXT_FILES[@]}"; do
+  BOOTSTRAP_FILE_LOOKUP["$(basename "$fname")"]=1
+done
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 estimate_tokens() {
   local file="$1"
   local bytes
-  bytes=$(wc -c < "$file" 2>/dev/null || echo 0)
+  # Prefer stat (size from metadata, works without read permission) so an
+  # unreadable bootstrap file cannot silently count as 0 tokens and false-clear
+  # the total-bootstrap gate; fall back to wc -c, then 0.
+  bytes=$(stat -c %s "$file" 2>/dev/null || wc -c < "$file" 2>/dev/null || echo 0)
   echo $(( (bytes + 3) / 4 ))  # ~1 token per 4 chars/bytes, ceiling
 }
 
@@ -188,6 +198,10 @@ fi
 CRITICALS=()
 WARNINGS=()
 DUPLICATES=()
+BOOTSTRAP_CRIT=()
+BOOTSTRAP_WARN=()
+BOOTSTRAP_OK=()
+MISSING_WORKSPACES=()
 HEALTHY_COUNT=0
 TOTAL_TOKENS=0
 WORKSPACE_COUNT=0
@@ -199,10 +213,14 @@ declare -A PARAGRAPH_TEXTS   # hash -> preview text for display
 declare -A PARAGRAPH_TOKENS  # hash -> estimated token count
 
 for ws in "${WORKSPACES[@]}"; do
-  [[ -d "$ws" ]] || continue
+  if [[ ! -d "$ws" ]]; then
+    MISSING_WORKSPACES+=("$(workspace_label "$ws"): configured workspace directory not found ($ws)")
+    continue
+  fi
   WORKSPACE_COUNT=$((WORKSPACE_COUNT + 1))
   ws_key=$(workspace_key "$ws")
   ws_label=$(workspace_label "$ws")
+  ws_total=0
 
   # Build file list: bootstrap set by default, or all *.md with --all-root-md
   scan_files=()
@@ -221,6 +239,9 @@ for ws in "${WORKSPACES[@]}"; do
     tokens=$(estimate_tokens "$mdfile")
     bytes=$(wc -c < "$mdfile" 2>/dev/null || echo 0)
     TOTAL_TOKENS=$((TOTAL_TOKENS + tokens))
+    if [[ -n "${BOOTSTRAP_FILE_LOOKUP[$filename]:-}" ]]; then
+      ws_total=$((ws_total + tokens))
+    fi
 
     # Get thresholds
     thresh=$(get_threshold "$filename")
@@ -300,6 +321,15 @@ for ws in "${WORKSPACES[@]}"; do
     )
   done
 
+  bootstrap_entry="$ws_label: ~${ws_total} tokens"
+  if [[ "$ws_total" -ge "$TOTAL_BOOTSTRAP_CRIT" ]]; then
+    BOOTSTRAP_CRIT+=("$bootstrap_entry (critical limit: ${TOTAL_BOOTSTRAP_CRIT})")
+  elif [[ "$ws_total" -ge "$TOTAL_BOOTSTRAP_WARN" ]]; then
+    BOOTSTRAP_WARN+=("$bootstrap_entry (warn limit: ${TOTAL_BOOTSTRAP_WARN})")
+  else
+    BOOTSTRAP_OK+=("$bootstrap_entry")
+  fi
+
   # Check memory directory
   mem_dir="$ws/$MEMORY_DIR_NAME"
   if [[ -d "$mem_dir" ]]; then
@@ -334,11 +364,35 @@ done
 
 DATE=$(date '+%b %-d, %Y')
 
-if [[ ${#CRITICALS[@]} -eq 0 && ${#WARNINGS[@]} -eq 0 && ${#DUPLICATES[@]} -eq 0 ]]; then
+bootstrap_report=$'\n\n'"📊 TOTAL BOOTSTRAP BUDGET (per-turn injected set vs ~15k wall; warn ${TOTAL_BOOTSTRAP_WARN} / crit ${TOTAL_BOOTSTRAP_CRIT})"
+if [[ ${#BOOTSTRAP_CRIT[@]} -gt 0 ]]; then
+  for item in "${BOOTSTRAP_CRIT[@]}"; do
+    bootstrap_report+=$'\n'"• 🔴 $item"
+  done
+fi
+if [[ ${#BOOTSTRAP_WARN[@]} -gt 0 ]]; then
+  for item in "${BOOTSTRAP_WARN[@]}"; do
+    bootstrap_report+=$'\n'"• ⚠️ $item"
+  done
+fi
+if [[ ${#BOOTSTRAP_OK[@]} -gt 0 ]]; then
+  for item in "${BOOTSTRAP_OK[@]}"; do
+    bootstrap_report+=$'\n'"• ✅ $item"
+  done
+fi
+if [[ ${#MISSING_WORKSPACES[@]} -gt 0 ]]; then
+  for item in "${MISSING_WORKSPACES[@]}"; do
+    bootstrap_report+=$'\n'"• 🚫 $item"
+  done
+fi
+
+if [[ ${#CRITICALS[@]} -eq 0 && ${#WARNINGS[@]} -eq 0 && ${#DUPLICATES[@]} -eq 0 && ${#BOOTSTRAP_CRIT[@]} -eq 0 && ${#BOOTSTRAP_WARN[@]} -eq 0 && ${#MISSING_WORKSPACES[@]} -eq 0 ]]; then
   REPORT="✅ Context Audit — $DATE: All clear. ~${TOTAL_TOKENS} tokens across $WORKSPACE_COUNT workspaces."
+  REPORT+="$bootstrap_report"
 else
   REPORT="🔍 Context Audit — $DATE"
   REPORT+=$'\n'"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  REPORT+="$bootstrap_report"
 
   if [[ ${#CRITICALS[@]} -gt 0 ]]; then
     REPORT+=$'\n\n'"🔴 CRITICAL (${#CRITICALS[@]})"
